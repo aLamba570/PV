@@ -114,12 +114,13 @@ st.title("Solar PV Plant Performance Dashboard")
 
 # Sidebar
 st.sidebar.header("Configuration")
-data_file = st.sidebar.text_input("CSV Data File", "data.csv")
+uploaded_file = st.sidebar.file_uploader("Upload CSV data file", type=["csv"])
 
-if st.sidebar.button("Load and Analyze Data"):
-    df = load_data(data_file)
+
+if uploaded_file and st.sidebar.button("Load and Analyze Data"):
+    df = load_data(uploaded_file)
     df = preprocess_data(df)
-    df = preprocess_and_compute(data_file)
+    # df = preprocess_and_compute(data_file)
     df = add_features(df)
     df = add_flags_and_losses(df)
     df = add_improved_theoretical_generation(df)
