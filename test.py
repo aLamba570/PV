@@ -11,11 +11,13 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.inspection import permutation_importance
 
 # --- Data Loading and Preprocessing ---
+@st.cache_data
 def load_data(filepath):
     df = pd.read_csv(filepath)
     df['datetime'] = pd.to_datetime(df['datetime'])
     return df
 
+@st.cache_data
 def preprocess_data(df):
     for col in ['ppc_p_tot', 'meteorolgicas_em_03_02_ghi']:
         df[col] = df[col].fillna(df[col].median())
@@ -117,6 +119,7 @@ data_file = st.sidebar.text_input("CSV Data File", "data.csv")
 if st.sidebar.button("Load and Analyze Data"):
     df = load_data(data_file)
     df = preprocess_data(df)
+    df = preprocess_and_compute(data_file)
     df = add_features(df)
     df = add_flags_and_losses(df)
     df = add_improved_theoretical_generation(df)
