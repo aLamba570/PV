@@ -71,11 +71,16 @@ def refine_flags_and_quantify_losses(df):
     return df
 
 def aggregate_losses(df):
+    df_15min = df.groupby(pd.Grouper(key='datetime', freq='15T'))[['cloud_cover_loss', 'high_temp_loss', 'soiling_loss', 'shading_loss', 'other_loss']].sum()
     df_hourly = df.groupby(pd.Grouper(key='datetime', freq='H'))[['cloud_cover_loss', 'high_temp_loss', 'soiling_loss', 'shading_loss', 'other_loss']].sum()
     df_daily = df.groupby(pd.Grouper(key='datetime', freq='D'))[['cloud_cover_loss', 'high_temp_loss', 'soiling_loss', 'shading_loss', 'other_loss']].sum()
     df_weekly = df.groupby(pd.Grouper(key='datetime', freq='W'))[['cloud_cover_loss', 'high_temp_loss', 'soiling_loss', 'shading_loss', 'other_loss']].sum()
     df_monthly = df.groupby(pd.Grouper(key='datetime', freq='M'))[['cloud_cover_loss', 'high_temp_loss', 'soiling_loss', 'shading_loss', 'other_loss']].sum()
-    return df_hourly, df_daily, df_weekly, df_monthly
+    return df_15min, df_hourly, df_daily, df_weekly, df_monthly
+
+def aggregate_by_component(df, component_col):
+    # Example: component_col = 'inverter_id' or 'string_id'
+    return df.groupby([pd.Grouper(key='datetime', freq='15T'), component_col])[['cloud_cover_loss', 'high_temp_loss', 'soiling_loss', 'shading_loss', 'other_loss']].sum()
 
 def train_models(df, features, target='ppc_p_tot'):
     X = df[features]
@@ -120,12 +125,11 @@ uploaded_file = st.sidebar.file_uploader("Upload CSV data file", type=["csv"])
 if uploaded_file and st.sidebar.button("Load and Analyze Data"):
     df = load_data(uploaded_file)
     df = preprocess_data(df)
-    # df = preprocess_and_compute(data_file)
     df = add_features(df)
     df = add_flags_and_losses(df)
     df = add_improved_theoretical_generation(df)
     df = refine_flags_and_quantify_losses(df)
-    df_hourly, df_daily, df_weekly, df_monthly = aggregate_losses(df)
+    df_15min, df_hourly, df_daily, df_weekly, df_monthly = aggregate_losses(df)
     features = ['meteorolgicas_em_03_02_ghi', 'celulas_ctin03_cc_03_1_t_mod', 'hour', 'day_of_week', 'month']
     metrics = train_models(df, features)
     feature_importance = get_feature_importance(metrics['hgb_model'], metrics['X_train'], metrics['y_train'])
@@ -137,9 +141,27 @@ if uploaded_file and st.sidebar.button("Load and Analyze Data"):
     flag_cols = ['datetime', 'cloud_cover_flag', 'high_temperature_flag', 'soiling_flag_refined', 'shading_flag_refined', 'other_losses_flag',
                  'cloud_cover_loss', 'high_temp_loss', 'soiling_loss', 'shading_loss', 'other_loss']
     st.dataframe(df[flag_cols].head())
+    csv_15min = df[flag_cols].to_csv(index=False).encode('utf-8')
+    st.download_button("Download 15-min Flags and Losses CSV", csv_15min, "loss_flags_15min.csv", "text/csv")
 
-    csv = df[flag_cols].to_csv(index=False).encode('utf-8')
-    st.download_button("Download Flags and Losses CSV", csv, "loss_flags.csv", "text/csv")
+    # Download CSVs for all time resolutions
+    for name, agg_df in zip([
+        "Hourly", "Daily", "Weekly", "Monthly"],
+        [df_hourly, df_daily, df_weekly, df_monthly]
+    ):
+        st.download_button(f"Download {name} Losses CSV", agg_df.to_csv().encode('utf-8'), f"losses_{name.lower()}.csv", "text/csv")
+
+    # Inverter/String-level breakdowns (if columns exist)
+    if 'inverter_id' in df.columns:
+        st.subheader("Inverter-level Loss Breakdown (15-min)")
+        df_inverter = aggregate_by_component(df, 'inverter_id')
+        st.dataframe(df_inverter.head())
+        st.download_button("Download Inverter Losses CSV", df_inverter.to_csv().encode('utf-8'), "losses_inverter.csv", "text/csv")
+    if 'string_id' in df.columns:
+        st.subheader("String-level Loss Breakdown (15-min)")
+        df_string = aggregate_by_component(df, 'string_id')
+        st.dataframe(df_string.head())
+        st.download_button("Download String Losses CSV", df_string.to_csv().encode('utf-8'), "losses_string.csv", "text/csv")
 
     st.subheader("Model Performance")
     st.write(f"Linear Regression MAE: {metrics['lr_mae']:.4f}, RMSE: {metrics['lr_rmse']:.4f}")
@@ -163,17 +185,41 @@ if uploaded_file and st.sidebar.button("Load and Analyze Data"):
     ax.legend()
     st.pyplot(fig)
 
+    # Loss breakdown visualizations
+    st.subheader("Loss Breakdown by Category (15-min)")
+    st.line_chart(df_15min)
     st.subheader("Loss Breakdown by Category (Hourly)")
     st.line_chart(df_hourly)
-
     st.subheader("Loss Breakdown by Category (Daily)")
     st.line_chart(df_daily)
-
     st.subheader("Loss Breakdown by Category (Weekly)")
     st.line_chart(df_weekly)
-
     st.subheader("Loss Breakdown by Category (Monthly)")
     st.line_chart(df_monthly)
+
+    # Heatmap visualization (example for hourly losses)
+    st.subheader("Hourly Loss Heatmap (Cloud Cover Loss)")
+    import seaborn as sns
+    import matplotlib.dates as mdates
+    fig, ax = plt.subplots(figsize=(12, 4))
+    pivot = df_hourly.reset_index()
+    pivot['hour'] = pivot['datetime'].dt.hour
+    pivot['date'] = pivot['datetime'].dt.date
+    heatmap_data = pivot.pivot(index='hour', columns='date', values='cloud_cover_loss')
+    sns.heatmap(heatmap_data, ax=ax, cmap='YlOrRd')
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Hour')
+    st.pyplot(fig)
+
+    # Asset ranking (example: by soiling loss)
+    if 'inverter_id' in df.columns:
+        st.subheader("Inverter Asset Ranking by Soiling Loss")
+        inverter_ranking = df.groupby('inverter_id')['soiling_loss'].sum().sort_values(ascending=False)
+        st.dataframe(inverter_ranking)
+    if 'string_id' in df.columns:
+        st.subheader("String Asset Ranking by Soiling Loss")
+        string_ranking = df.groupby('string_id')['soiling_loss'].sum().sort_values(ascending=False)
+        st.dataframe(string_ranking)
 
     st.subheader("Project Summary Report")
     st.markdown("""
@@ -191,13 +237,16 @@ if uploaded_file and st.sidebar.button("Load and Analyze Data"):
         - **Shading:** Based on sharp dips in output
         - **Other Losses:** Residual unexplained losses
     - **Machine Learning Models:** Trained Linear Regression and Gradient Boosting models to validate predictive patterns
-    - **Visualization:** Aggregated losses hourly, daily, weekly, and monthly for intuitive analysis
+    - **Visualization:** Aggregated losses at all required time resolutions and component levels
+    - **Heatmaps:** Provided for time vs. loss breakdown
+    - **Asset Ranking:** By soiling loss for inverters/strings
+    - **CSV Downloads:** For all time resolutions and component levels
 
     **Key Results:**
     - Theoretical and actual generation trends clearly diverged under adverse conditions
     - ML model RMSE was within acceptable range, indicating reasonable predictive quality
     - Feature importance showed strong influence of GHI, temperature, and time components
-
+    - Losses and flags available at all required granularities and levels
 
     """)
 
