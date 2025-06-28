@@ -10,7 +10,6 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.inspection import permutation_importance
 
-# --- Data Loading and Preprocessing ---
 @st.cache_data
 def load_data(filepath):
     df = pd.read_csv(filepath)
@@ -79,7 +78,7 @@ def aggregate_losses(df):
     return df_15min, df_hourly, df_daily, df_weekly, df_monthly
 
 def aggregate_by_component(df, component_col):
-    # Example: component_col = 'inverter_id' or 'string_id'
+    
     return df.groupby([pd.Grouper(key='datetime', freq='15T'), component_col])[['cloud_cover_loss', 'high_temp_loss', 'soiling_loss', 'shading_loss', 'other_loss']].sum()
 
 def train_models(df, features, target='ppc_p_tot'):
@@ -151,7 +150,7 @@ if uploaded_file and st.sidebar.button("Load and Analyze Data"):
     ):
         st.download_button(f"Download {name} Losses CSV", agg_df.to_csv().encode('utf-8'), f"losses_{name.lower()}.csv", "text/csv")
 
-    # Inverter/String-level breakdowns (if columns exist)
+    
     if 'inverter_id' in df.columns:
         st.subheader("Inverter-level Loss Breakdown (15-min)")
         df_inverter = aggregate_by_component(df, 'inverter_id')
@@ -185,7 +184,7 @@ if uploaded_file and st.sidebar.button("Load and Analyze Data"):
     ax.legend()
     st.pyplot(fig)
 
-    # Loss breakdown visualizations
+    
     st.subheader("Loss Breakdown by Category (15-min)")
     st.line_chart(df_15min)
     st.subheader("Loss Breakdown by Category (Hourly)")
@@ -197,7 +196,7 @@ if uploaded_file and st.sidebar.button("Load and Analyze Data"):
     st.subheader("Loss Breakdown by Category (Monthly)")
     st.line_chart(df_monthly)
 
-    # Heatmap visualization (example for hourly losses)
+    
     st.subheader("Hourly Loss Heatmap (Cloud Cover Loss)")
     import seaborn as sns
     import matplotlib.dates as mdates
@@ -211,7 +210,6 @@ if uploaded_file and st.sidebar.button("Load and Analyze Data"):
     ax.set_ylabel('Hour')
     st.pyplot(fig)
 
-    # Asset ranking (example: by soiling loss)
     if 'inverter_id' in df.columns:
         st.subheader("Inverter Asset Ranking by Soiling Loss")
         inverter_ranking = df.groupby('inverter_id')['soiling_loss'].sum().sort_values(ascending=False)
